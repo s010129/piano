@@ -3,27 +3,40 @@
   'use strict';
 
   /* ───────────── 鍵位與音名 ─────────────
-   * 下排 Z–M 是低音區白鍵，夾在中間的 S D G H J 是黑鍵；
-   * 上排 Q–P 是高音區白鍵，上方的數字 2 3 5 6 7 9 0 是黑鍵。
-   * 排列方式對照真實琴鍵：白鍵一列、黑鍵在它上面一列。
+   * 上兩排是一條完整的鋼琴：Q 到 \ 是白鍵，上方的數字與 - = 是黑鍵，
+   *   中央 C 在 Y，左手放 Q–T、右手放 Y–\，雙手並排由左到右。
+   * 下兩排是同樣的排法、低一個八度：Z 到 / 是白鍵，上方的 A–' 是黑鍵，給左手彈低音。
+   * 白鍵之間沒有黑鍵的地方（E–F、B–C）對應的按鍵不發聲，手感跟真鋼琴一樣。
    */
-  const KEYS = [
-    ['KeyZ', 'Z', 48], ['KeyS', 'S', 49], ['KeyX', 'X', 50], ['KeyD', 'D', 51], ['KeyC', 'C', 52],
-    ['KeyV', 'V', 53], ['KeyG', 'G', 54], ['KeyB', 'B', 55], ['KeyH', 'H', 56], ['KeyN', 'N', 57],
-    ['KeyJ', 'J', 58], ['KeyM', 'M', 59],
-    ['KeyQ', 'Q', 60], ['Digit2', '2', 61], ['KeyW', 'W', 62], ['Digit3', '3', 63], ['KeyE', 'E', 64],
-    ['KeyR', 'R', 65], ['Digit5', '5', 66], ['KeyT', 'T', 67], ['Digit6', '6', 68], ['KeyY', 'Y', 69],
-    ['Digit7', '7', 70], ['KeyU', 'U', 71], ['KeyI', 'I', 72], ['Digit9', '9', 73], ['KeyO', 'O', 74],
-    ['Digit0', '0', 75], ['KeyP', 'P', 76],
+  const UPPER_KEYS = [
+    ['Digit1', '1', 51], ['KeyQ', 'Q', 52], ['KeyW', 'W', 53], ['Digit3', '3', 54], ['KeyE', 'E', 55],
+    ['Digit4', '4', 56], ['KeyR', 'R', 57], ['Digit5', '5', 58], ['KeyT', 'T', 59], ['KeyY', 'Y', 60],
+    ['Digit7', '7', 61], ['KeyU', 'U', 62], ['Digit8', '8', 63], ['KeyI', 'I', 64], ['KeyO', 'O', 65],
+    ['Digit0', '0', 66], ['KeyP', 'P', 67], ['Minus', '-', 68], ['BracketLeft', '[', 69], ['Equal', '=', 70],
+    ['BracketRight', ']', 71], ['Backslash', '\\', 72],
   ];
-  const LOW = 48;
-  const HIGH = 76;
+  const LOWER_KEYS = [
+    ['KeyA', 'A', 39], ['KeyZ', 'Z', 40], ['KeyX', 'X', 41], ['KeyD', 'D', 42], ['KeyC', 'C', 43],
+    ['KeyF', 'F', 44], ['KeyV', 'V', 45], ['KeyG', 'G', 46], ['KeyB', 'B', 47], ['KeyN', 'N', 48],
+    ['KeyJ', 'J', 49], ['KeyM', 'M', 50], ['KeyK', 'K', 51], ['Comma', ',', 52], ['Period', '.', 53],
+    ['Semicolon', ';', 54], ['Slash', '/', 55], ['Quote', "'", 56],
+  ];
+  const LOW = 38;  // 畫面從 D2 開始，讓最低的 D♯2（A 鍵）有位置
+  const HIGH = 72; // C5
+  const PLAY_LOW = 39;
   const COUNT = HIGH - LOW + 1;
-  const LABELS = KEYS.map(k => k[1]);
-  const CODE_INDEX = new Map(KEYS.map(([code, , midi]) => [code, midi - LOW]));
+  const LABELS = Array.from({ length: COUNT }, () => ({ upper: '', lower: '' }));
+  const CODE_INDEX = new Map();
+  UPPER_KEYS.forEach(([code, label, midi]) => { CODE_INDEX.set(code, midi - LOW); LABELS[midi - LOW].upper = label; });
+  LOWER_KEYS.forEach(([code, label, midi]) => { CODE_INDEX.set(code, midi - LOW); LABELS[midi - LOW].lower = label; });
+  // 曲譜模式的音符標示：右手優先標上排的鍵、左手優先標下排的鍵
+  const keyLabel = (i, hand) => {
+    const L = LABELS[i];
+    return hand === 'L' ? L.lower || L.upper : L.upper || L.lower;
+  };
   const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
-  const OCTAVE_MIN = -2;
-  const OCTAVE_MAX = 2;
+  const OCTAVE_MIN = -1;
+  const OCTAVE_MAX = 3;
 
   const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
   const CHORD_ROOTS = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
@@ -37,12 +50,45 @@
 
   /* ───────────── 音色：Web Audio 合成，像電子琴一樣可以切換 ───────────── */
   const TONES = [
-    { id: 'piano', name: '鋼琴', en: 'Grand Piano' },
-    { id: 'epiano', name: '電鋼琴', en: 'Electric Piano' },
-    { id: 'organ', name: '風琴', en: 'Drawbar Organ' },
-    { id: 'strings', name: '弦樂', en: 'Strings' },
-    { id: 'synth', name: '合成器', en: 'Synth Lead' },
-    { id: 'musicbox', name: '音樂盒', en: 'Music Box' },
+    { id: 'piano', group: 'acoustic', name: '鋼琴', en: 'Grand Piano' },
+    { id: 'epiano', group: 'acoustic', name: '電鋼琴', en: 'Electric Piano' },
+    { id: 'organ', group: 'acoustic', name: '風琴', en: 'Drawbar Organ' },
+    { id: 'strings', group: 'acoustic', name: '弦樂', en: 'Strings' },
+    { id: 'musicbox', group: 'acoustic', name: '音樂盒', en: 'Music Box' },
+    { id: 'synth', group: 'edm', name: '合成主奏', en: 'Synth Lead' },
+    { id: 'supersaw', group: 'edm', name: '超級鋸齒', en: 'Supersaw' },
+    { id: 'pluck', group: 'edm', name: '合成撥弦', en: 'Pluck' },
+    { id: 'chip', group: 'edm', name: '8-bit 晶片', en: 'Chiptune' },
+    { id: 'bass', group: 'edm', name: '合成貝斯', en: 'Synth Bass' },
+    { id: 'wobble', group: 'edm', name: 'Wobble 貝斯', en: 'Wobble Bass' },
+    { id: 'pad', group: 'edm', name: '氛圍鋪底', en: 'Atmos Pad' },
+  ];
+  const TONE_GROUPS = [
+    { id: 'acoustic', label: '原聲' },
+    { id: 'edm', label: '電音' },
+  ];
+
+  /* 節奏伴奏（電子琴的 Style）：每一行是一小節的十六分音符格子，
+   * X 重拍、x 一般、o 輕拍、- 不打。 */
+  const STYLES = [
+    { id: 'pop', group: 'basic', name: '流行', en: '8 Beat Pop', bpm: 96, meter: 4, parts: {
+      kick: 'X-----x-x-------', snare: '----X-------X---', chat: 'x-o-x-o-x-o-x-o-' } },
+    { id: 'rock', group: 'basic', name: '搖滾', en: 'Rock', bpm: 120, meter: 4, parts: {
+      kick: 'X-----x-X-x-----', snare: '----X-------X---', chat: 'X-x-X-x-X-x-X-x-' } },
+    { id: 'disco', group: 'basic', name: '迪斯可', en: 'Disco', bpm: 116, meter: 4, parts: {
+      kick: 'X---X---X---X---', snare: '----X-------X---', ohat: '--x---x---x---x-', chat: 'o---o---o---o---' } },
+    { id: 'waltz', group: 'basic', name: '華爾滋', en: 'Waltz 3/4', bpm: 96, meter: 3, parts: {
+      kick: 'X-----------', rim: '----x---x---', chat: '----o---o---' } },
+    { id: 'house', group: 'edm', name: '浩室', en: 'House', bpm: 124, meter: 4, parts: {
+      kick: 'X---X---X---X---', clap: '----X-------X---', ohat: '--x---x---x---x-', chat: 'oo-ooo-ooo-ooo-o' } },
+    { id: 'trap', group: 'edm', name: '陷阱', en: 'Trap', bpm: 140, meter: 4, parts: {
+      kick: 'X------x--x-----', clap: '--------X-------', chat: 'x-x-x-x-x-xxx-xx' } },
+    { id: 'dnb', group: 'edm', name: '鼓打貝斯', en: 'Drum & Bass', bpm: 172, meter: 4, parts: {
+      kick: 'X---------X-----', snare: '----X-------X---', chat: 'x-x-x-x-x-x-x-x-' } },
+  ];
+  const STYLE_GROUPS = [
+    { id: 'basic', label: '一般' },
+    { id: 'edm', label: '電音' },
   ];
 
   const audio = (() => {
@@ -50,7 +96,12 @@
     let bus = null;
     let waves = null;
     let noise = null;
+    let noiseLong = null;
+    let master = null;
+    let echo = null;    // 跟著速度走的附點八分音符回音
+    let drumBus = null;
     let tone = 'piano';
+    let tempo = 120;
     const sounding = new Map(); // midi → 目前發聲中的 voice
     const live = new Set();
     const MAX_VOICES = 48;
@@ -89,7 +140,7 @@
         room.buffer = roomImpulse(2.6, 3.2);
         const wet = ctx.createGain();
         wet.gain.value = 0.2;
-        const master = ctx.createGain();
+        master = ctx.createGain();
         master.gain.value = 0.95;
         bus.connect(comp);
         bus.connect(room);
@@ -98,6 +149,30 @@
         comp.connect(master);
         master.connect(ctx.destination);
 
+        // 電音音色用的回音
+        echo = ctx.createDelay(2);
+        const feedback = ctx.createGain();
+        feedback.gain.value = 0.35;
+        const echoTone = ctx.createBiquadFilter();
+        echoTone.type = 'lowpass';
+        echoTone.frequency.value = 3500;
+        const echoWet = ctx.createGain();
+        echoWet.gain.value = 0.5;
+        echo.connect(feedback);
+        feedback.connect(echo);
+        echo.connect(echoTone);
+        echoTone.connect(echoWet);
+        echoWet.connect(comp);
+
+        // 鼓組另走一條，不讓大鼓壓縮到琴聲
+        drumBus = ctx.createGain();
+        drumBus.gain.value = 0.55;
+        const drumComp = ctx.createDynamicsCompressor();
+        drumComp.threshold.value = -10;
+        drumComp.ratio.value = 4;
+        drumBus.connect(drumComp);
+        drumComp.connect(master);
+
         waves = {
           // 鋼琴：低音區泛音豐富、高音區接近純音
           low: harmonicWave([0.55, 1, 0.8, 0.62, 0.48, 0.36, 0.28, 0.2, 0.15, 0.11, 0.08, 0.06, 0.045, 0.03]),
@@ -105,10 +180,21 @@
           high: harmonicWave([1, 0.28, 0.1, 0.04, 0.02]),
           // 風琴拉桿：以低八度為基頻，依序是 16'、8'、5⅓'、4'、2⅔'、2'、1⅗'、1⅓'、1'
           organ: harmonicWave([0.5, 1, 0.55, 0.6, 0, 0.35, 0, 0.35, 0, 0.1, 0, 0.12, 0, 0, 0, 0.15]),
+          // 8-bit 遊戲機的 25% 脈衝波
+          pulse: (() => {
+            const n = 32;
+            const real = new Float32Array(n + 1);
+            for (let k = 1; k <= n; k++) real[k] = (2 / (k * Math.PI)) * Math.sin(k * Math.PI * 0.25);
+            return ctx.createPeriodicWave(real, new Float32Array(n + 1));
+          })(),
         };
         noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.1), ctx.sampleRate);
         const nd = noise.getChannelData(0);
         for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+        noiseLong = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+        const nl = noiseLong.getChannelData(0);
+        for (let i = 0; i < nl.length; i++) nl[i] = Math.random() * 2 - 1;
+        setTempo(tempo);
       }
       if (ctx.state === 'suspended') ctx.resume();
       return true;
@@ -265,6 +351,106 @@
         g.linearRampToValueAtTime(level, t + 0.006);
         g.setTargetAtTime(level * 0.75, t + 0.006, 0.15);
         v.release = 0.07;
+        v.send = 0.15;
+        return t + 600;
+      },
+
+      // 超級鋸齒：七把微微走音的鋸齒波疊在一起，EDM 主旋律的招牌聲
+      supersaw(v, t, f) {
+        const level = 0.022;
+        const tone = lowpass(v.out, 0.8);
+        tone.frequency.value = Math.min(16000, f * 6 + 1800);
+        for (const cents of [-24, -15, -7, 0, 7, 15, 24]) v.srcs.push(osc('sawtooth', f, cents, tone, t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.012);
+        g.setTargetAtTime(level * 0.85, t + 0.012, 0.3);
+        v.release = 0.22;
+        v.send = 0.18;
+        return t + 600;
+      },
+
+      // 合成撥弦：濾波器瞬間關上，配回音最有電音感
+      pluck(v, t, f, pos, vel) {
+        const level = 0.07 * vel;
+        const tone = lowpass(v.out, 3);
+        tone.frequency.setValueAtTime(Math.min(15000, f * 14 + 2000), t);
+        tone.frequency.setTargetAtTime(Math.min(4000, f * 1.3 + 200), t + 0.002, 0.09);
+        v.srcs.push(osc('sawtooth', f, -6, tone, t), osc('square', f, 6, gainNode(0.5, tone), t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.003);
+        g.setTargetAtTime(0, t + 0.004, 0.32);
+        v.release = 0.18;
+        v.send = 0.32;
+        return t + 3;
+      },
+
+      // 8-bit 晶片音樂：脈衝波，按久了才出現抖音
+      chip(v, t, f) {
+        const level = 0.05;
+        const o = osc(waves.pulse, f, 0, v.out, t);
+        const vib = vibrato(6, 14, 0.35, t);
+        vib.depth.connect(o.detune);
+        v.srcs.push(o, vib.lfo);
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.002);
+        g.setTargetAtTime(level * 0.7, t + 0.002, 0.2);
+        v.release = 0.03;
+        v.send = 0.12;
+        return t + 600;
+      },
+
+      // 合成貝斯：鋸齒波加低八度正弦波，濾波器快速收起
+      bass(v, t, f, pos, vel) {
+        const level = 0.09 * vel;
+        const tone = lowpass(v.out, 7);
+        tone.frequency.setValueAtTime(Math.min(8000, f * 9 + 300), t);
+        tone.frequency.setTargetAtTime(Math.min(3000, f * 2.2 + 120), t + 0.003, 0.11);
+        v.srcs.push(osc('sawtooth', f, 0, tone, t), osc('sine', f / 2, 0, gainNode(0.9, v.out), t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.004);
+        g.setTargetAtTime(level * 0.8, t + 0.004, 0.25);
+        v.release = 0.06;
+        return t + 600;
+      },
+
+      // Wobble 貝斯：濾波器隨節奏一開一關（八分音符）
+      wobble(v, t, f) {
+        const level = 0.05;
+        const tone = lowpass(v.out, 9);
+        tone.frequency.value = Math.min(6000, f * 2 + 450);
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = (tempo / 60) * 2;
+        lfo.connect(gainNode(Math.min(5000, f * 2 + 380), tone.frequency));
+        lfo.start(t);
+        v.srcs.push(
+          osc('sawtooth', f, -5, tone, t),
+          osc('sawtooth', f, 5, tone, t),
+          osc('sine', f / 2, 0, gainNode(0.7, v.out), t),
+          lfo,
+        );
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.006);
+        v.release = 0.06;
+        return t + 600;
+      },
+
+      // 氛圍鋪底：慢慢浮現、濾波器緩緩打開
+      pad(v, t, f) {
+        const level = 0.03;
+        const tone = lowpass(v.out, 1.5);
+        tone.frequency.setValueAtTime(f * 1.2 + 200, t);
+        tone.frequency.linearRampToValueAtTime(Math.min(9000, f * 5 + 900), t + 1.8);
+        for (const cents of [-14, -5, 5, 14]) v.srcs.push(osc('sawtooth', f, cents, tone, t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.7);
+        v.release = 1.1;
+        v.send = 0.3;
         return t + 600;
       },
 
@@ -309,6 +495,7 @@
       const v = { midi, out, srcs: [], release: 0.1, released: false };
       const end = VOICES[tone](v, t, f, pos, vel);
       v.srcs.forEach(s => s.stop(end));
+      if (v.send) out.connect(gainNode(v.send, echo));
       v.srcs[0].onended = () => {
         out.disconnect();
         live.delete(v);
@@ -340,7 +527,73 @@
       if (VOICES[id]) tone = id;
     }
 
-    return { ensure, noteOn, noteOff, setTone };
+    // 回音長度與 Wobble 速度都跟著節奏的速度
+    function setTempo(bpm) {
+      tempo = bpm;
+      if (echo) echo.delayTime.setTargetAtTime(Math.min(1.5, (0.75 * 60) / bpm), ctx.currentTime, 0.05);
+    }
+
+    /* ───── 鼓組（節奏伴奏用） ───── */
+    function noiseHit(t, level, type, freq, q, decay) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseLong;
+      const filter = ctx.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = freq;
+      if (q) filter.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(level, t);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
+      src.connect(filter);
+      filter.connect(g);
+      g.connect(drumBus);
+      src.start(t, Math.random() * 0.5);
+      src.stop(t + decay + 0.02);
+    }
+
+    function toneHit(t, type, from, to, sweep, level, decay) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(from, t);
+      if (to) o.frequency.exponentialRampToValueAtTime(to, t + sweep);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(level, t);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
+      o.connect(g);
+      g.connect(drumBus);
+      o.start(t);
+      o.stop(t + decay + 0.02);
+    }
+
+    const DRUMS = {
+      kick(t, v) {
+        toneHit(t, 'sine', 160, 42, 0.12, 0.95 * v, 0.42);
+        noiseHit(t, 0.25 * v, 'highpass', 3000, 0, 0.012);
+      },
+      snare(t, v) {
+        noiseHit(t, 0.5 * v, 'highpass', 1400, 0, 0.17);
+        toneHit(t, 'triangle', 200, 160, 0.05, 0.35 * v, 0.09);
+      },
+      clap(t, v) {
+        noiseHit(t, 0.6 * v, 'bandpass', 1500, 1.2, 0.012);
+        noiseHit(t + 0.011, 0.6 * v, 'bandpass', 1500, 1.2, 0.012);
+        noiseHit(t + 0.022, 0.6 * v, 'bandpass', 1500, 1.2, 0.16);
+      },
+      chat(t, v) { noiseHit(t, 0.28 * v, 'highpass', 7500, 0, 0.045); },
+      ohat(t, v) { noiseHit(t, 0.22 * v, 'highpass', 6500, 0, 0.3); },
+      rim(t, v) {
+        noiseHit(t, 0.5 * v, 'bandpass', 2600, 3, 0.03);
+        toneHit(t, 'square', 1700, 0, 0, 0.08 * v, 0.02);
+      },
+    };
+
+    function drum(kind, t, v) {
+      if (ctx && DRUMS[kind]) DRUMS[kind](Math.max(t, ctx.currentTime), v);
+    }
+
+    const time = () => (ctx ? ctx.currentTime : 0);
+
+    return { ensure, noteOn, noteOff, setTone, setTempo, drum, time };
   })();
 
   /* ───────────── DOM ───────────── */
@@ -366,19 +619,27 @@
   const downCount = new Array(COUNT).fill(0);
 
   (function buildPiano() {
-    const whites = KEYS.filter(k => !isBlack(k[2])).length;
+    const midis = Array.from({ length: COUNT }, (_, i) => LOW + i);
+    const whites = midis.filter(m => !isBlack(m)).length;
     const BLACK_W = 0.58; // 黑鍵寬度（以白鍵寬為單位）
     const LEAN = { 1: -0.12, 3: 0.12, 6: -0.16, 8: 0, 10: 0.16 }; // 真實鋼琴黑鍵並非置中
+    const span = (cls, text) => {
+      const el = document.createElement('span');
+      el.className = cls;
+      el.textContent = text;
+      return el;
+    };
     let w = 0;
-    KEYS.forEach(([, label, midi], i) => {
+    midis.forEach((midi, i) => {
       const el = document.createElement('div');
       const black = isBlack(midi);
-      el.className = 'key ' + (black ? 'black' : 'white');
+      const { upper, lower } = LABELS[i];
+      el.className = 'key ' + (black ? 'black' : 'white') + (upper || lower ? '' : ' unbound');
       el.dataset.index = String(i);
       el.style.setProperty('--hue', String(HUES[midi % 12]));
-      el.innerHTML = black
-        ? `<span class="kb">${label}</span>`
-        : `<span class="nn"></span><span class="kb">${label}</span>`;
+      if (!black) el.append(span('nn', ''));
+      if (upper) el.append(span('kb up', upper));
+      if (lower) el.append(span('kb lo', lower));
       if (black) {
         const centre = w + LEAN[midi % 12] * BLACK_W;
         el.style.left = ((centre - BLACK_W / 2) / whites) * 100 + '%';
@@ -398,7 +659,8 @@
       const nn = el.querySelector('.nn');
       if (nn) nn.textContent = noteName(m);
       el.classList.toggle('middle-c', m === 60);
-      el.setAttribute('aria-label', `${noteName(m)}，按鍵 ${LABELS[i]}`);
+      const keys = [LABELS[i].upper, LABELS[i].lower].filter(Boolean).join(' 或 ');
+      el.setAttribute('aria-label', keys ? `${noteName(m)}，按鍵 ${keys}` : noteName(m));
     });
   }
 
@@ -412,7 +674,7 @@
   const WINDOWS = { perfect: 0.06, great: 0.11, good: 0.16 }; // 判定時間窗（秒）
   const G = {
     W: 0, H: 0, dpr: 1, lanes: [], left: 0, right: 0,
-    pianoTop: 0, bandH: 28, bandTop: 0, hitY: 0, pps: 200, mid: 300,
+    pianoTop: 0, bandH: 28, bandTop: 0, hitY: 0, pps: 200, mid: 300, hudBottom: 0,
   };
 
   function measure() {
@@ -434,6 +696,8 @@
     G.mid = Math.max(hudBottom + 80, hudBottom + (G.pianoTop - hudBottom) * 0.42);
     app.style.setProperty('--stage-mid', `${Math.round(G.mid)}px`);
     app.style.setProperty('--hud-bottom', `${Math.round(hudBottom)}px`);
+    G.hudBottom = hudBottom;
+    placeCenter();
     // 判定區高度＝Perfect 時間窗內音符移動的距離：音符底部落在區內按下就是 Perfect
     G.bandH = clamp(2 * WINDOWS.perfect * (G.pianoTop / LOOKAHEAD), 22, 44);
     G.bandTop = G.pianoTop - G.bandH;
@@ -614,7 +878,7 @@
 
   function resetRun() {
     releaseHolds();
-    game.notes = parsed[game.index].map(n => ({ ...n, state: PENDING }));
+    game.notes = parsed[game.index].map(n => ({ ...n, hand: n.voice === 1 ? 'L' : 'R', state: PENDING }));
     game.firstT = game.notes.length ? game.notes[0].t : 0;
     game.endT = game.notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
     game.assisted = false;
@@ -632,6 +896,7 @@
     game.clock0 = performance.now();
     hideResult();
     renderAll();
+    refreshRhythm();
   }
 
   function pauseSong() {
@@ -640,6 +905,7 @@
     game.status = 'paused';
     releaseHolds();
     renderAll();
+    refreshRhythm();
   }
 
   function resumeSong() {
@@ -647,6 +913,7 @@
     game.clock0 = performance.now();
     game.status = 'playing';
     renderAll();
+    refreshRhythm();
   }
 
   function stopSong() {
@@ -654,6 +921,7 @@
     resetRun();
     hideResult();
     renderAll();
+    refreshRhythm();
   }
 
   function togglePlay() {
@@ -680,7 +948,8 @@
       game.st0 = -(LOOKAHEAD + 0.8) * s;
     }
     game.speed = s;
-    renderSongbar();
+    renderAll();
+    if (game.status === 'playing') refreshRhythm();
   }
 
   function judge(n, grade, dt) {
@@ -761,6 +1030,7 @@
     game.st0 = songTime(performance.now()); // 停在曲末，畫面上不再留下音符
     game.status = 'done';
     releaseHolds();
+    refreshRhythm();
     const song = window.SONGS[game.index];
     const total = game.notes.length || 1;
     const acc = game.weight / total;
@@ -801,6 +1071,179 @@
       all[id] = score;
       localStorage.setItem(BEST_KEY, JSON.stringify(all));
     } catch (_) { /* 無法儲存時略過 */ }
+  }
+
+  /* ───────────── 節奏伴奏 ───────────── */
+  const rhythm = {
+    on: false,
+    style: 0,
+    bpm: STYLES[0].bpm,
+    mode: 'off', // off | free（一般模式自己打拍子）| song（曲譜模式跟著曲子）
+    timer: 0,
+    step: 0,
+    time: 0,
+    lastT: 0,   // 最後一個已排程的格子時間，重新開始時避免重複敲
+    song: null,
+    beats: [],  // 已排程、等著亮燈的拍子
+    lit: -1,
+    litAt: 0,
+  };
+  const mod = (a, n) => ((a % n) + n) % n;
+
+  function playStep(barStep, t) {
+    if (t <= rhythm.lastT + 0.005) return;
+    rhythm.lastT = t;
+    const parts = STYLES[rhythm.style].parts;
+    for (const kind in parts) {
+      const ch = parts[kind][barStep % parts[kind].length];
+      const vel = ch === 'X' ? 1 : ch === 'x' ? 0.75 : ch === 'o' ? 0.4 : 0;
+      if (vel) audio.drum(kind, t, vel);
+    }
+    if (barStep % 4 === 0) rhythm.beats.push({ t, beat: barStep / 4 });
+  }
+
+  function rhythmTick() {
+    const now = audio.time();
+    const horizon = now + 0.12;
+    if (rhythm.mode === 'free') {
+      const steps = STYLES[rhythm.style].meter * 4;
+      if (rhythm.time < now - 0.2) rhythm.time = now + 0.02; // 計時器被瀏覽器延遲過，重新對時
+      while (rhythm.time < horizon) {
+        playStep(rhythm.step % steps, rhythm.time);
+        rhythm.step++;
+        rhythm.time += 15 / rhythm.bpm; // 一格是十六分音符
+      }
+    } else if (rhythm.mode === 'song') {
+      const s = rhythm.song;
+      for (;;) {
+        const songT = (rhythm.step / 4) * s.spb;
+        const t = s.offset + (s.clock0 + ((songT - s.st0) / s.speed) * 1000) / 1000;
+        if (t >= horizon) break;
+        if (t >= now - 0.02) playStep(mod(rhythm.step - s.pickup * 4, s.meter * 4), t);
+        rhythm.step++;
+      }
+    }
+  }
+
+  function rhythmHalt() {
+    clearInterval(rhythm.timer);
+    rhythm.timer = 0;
+    rhythm.mode = 'off';
+    rhythm.beats = [];
+  }
+
+  function rhythmRun(mode) {
+    clearInterval(rhythm.timer);
+    rhythm.mode = mode;
+    rhythm.beats = [];
+    if (mode === 'free') {
+      rhythm.step = 0;
+      rhythm.time = Math.max(audio.time() + 0.05, rhythm.lastT + 0.05);
+      audio.setTempo(rhythm.bpm);
+    } else {
+      const song = window.SONGS[game.index];
+      const spb = 60 / song.bpm;
+      rhythm.song = {
+        clock0: game.clock0, st0: game.st0, speed: game.speed, spb,
+        meter: song.meter || 4, pickup: song.pickup || 0,
+        // performance.now() 與 AudioContext 時鐘的差，用跟琴聲同樣的方式對時，鼓和音符才會同時響
+        offset: audio.time() - performance.now() / 1000,
+      };
+      rhythm.step = Math.ceil((songTime(performance.now()) / spb) * 4);
+      audio.setTempo(song.bpm * game.speed);
+    }
+    rhythm.timer = setInterval(rhythmTick, 25);
+    rhythmTick();
+  }
+
+  // 一般模式：照選的速度自己打；曲譜模式：只在曲子進行時打，速度與小節跟著曲子
+  function refreshRhythm(restart) {
+    if (!rhythm.on || document.hidden) rhythmHalt();
+    else if (state.mode === 1) {
+      if (restart || rhythm.mode !== 'free') rhythmRun('free');
+    } else if (game.status === 'playing') rhythmRun('song');
+    else rhythmHalt();
+    renderRhythm(false);
+  }
+
+  function toggleRhythm() {
+    audio.ensure();
+    rhythm.on = !rhythm.on;
+    if (rhythm.on && state.mode === 2 && game.status !== 'playing') toast('曲子開始後，鼓會跟著曲子的拍子打');
+    refreshRhythm(true);
+  }
+
+  function setStyle(index) {
+    rhythm.style = mod(index, STYLES.length);
+    rhythm.bpm = STYLES[rhythm.style].bpm; // 換節奏時帶入該節奏的建議速度
+    renderRhythm(true);
+    if (rhythm.on) refreshRhythm(true);
+  }
+
+  function nudgeTempo(delta) {
+    if (state.mode === 2) {
+      toast('曲譜模式的鼓跟著曲子速度，請用上方的速度按鈕調整');
+      return;
+    }
+    rhythm.bpm = clamp(rhythm.bpm + delta, 50, 200);
+    audio.setTempo(rhythm.bpm);
+    renderRhythm(false);
+  }
+
+  function showBeat(beat) {
+    const dots = $('#leds').children;
+    for (let k = 0; k < dots.length; k++) {
+      dots[k].classList.toggle('on', k === beat);
+      dots[k].classList.toggle('downbeat', k === beat && beat === 0);
+    }
+  }
+
+  function updateLeds(now) {
+    const t = audio.time();
+    while (rhythm.beats.length && rhythm.beats[0].t <= t) {
+      rhythm.lit = rhythm.beats.shift().beat;
+      rhythm.litAt = now;
+      showBeat(rhythm.lit);
+    }
+    if (rhythm.lit >= 0 && now - rhythm.litAt > 110) {
+      rhythm.lit = -1;
+      showBeat(-1);
+    }
+  }
+
+  /* 音色／節奏的選單 */
+  const pad2 = n => String(n).padStart(2, '0');
+  const escapeHtml = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  function buildMenu(menu, items, groups, onPick) {
+    menu.innerHTML = groups.map(g =>
+      `<p class="menu-group">${g.label}</p>` +
+      items.map((it, i) => (it.group !== g.id ? '' :
+        `<button type="button" role="option" class="menu-item" data-index="${i}" aria-selected="false">` +
+        `<span class="menu-no">${pad2(i + 1)}</span><span class="menu-name">${escapeHtml(it.name)}</span>` +
+        `<span class="menu-en">${escapeHtml(it.en)}</span></button>`)).join('')).join('');
+    menu.addEventListener('click', e => {
+      const item = e.target.closest('.menu-item');
+      if (!item) return;
+      onPick(Number(item.dataset.index));
+      closeMenus();
+    });
+  }
+
+  function closeMenus() {
+    document.querySelectorAll('.menu').forEach(m => { m.hidden = true; });
+    document.querySelectorAll('.lcd').forEach(l => l.setAttribute('aria-expanded', 'false'));
+  }
+
+  function toggleMenu(menu, lcd, selected) {
+    const opening = menu.hidden;
+    closeMenus();
+    if (!opening) return;
+    menu.querySelectorAll('.menu-item').forEach(b => {
+      b.setAttribute('aria-selected', String(Number(b.dataset.index) === selected));
+    });
+    menu.hidden = false;
+    lcd.setAttribute('aria-expanded', 'true');
   }
 
   /* ───────────── 功能鍵 ───────────── */
@@ -877,7 +1320,7 @@
   function renderReadouts() {
     const o = state.octave;
     $('#octave-val').textContent = o > 0 ? `+${o}` : o < 0 ? `−${-o}` : '0';
-    $('#range-val').textContent = `${noteName(LOW + shift())}–${noteName(HIGH + shift())}`;
+    $('#range-val').textContent = `${noteName(PLAY_LOW + shift())}–${noteName(HIGH + shift())}`;
     $('#sustain-val').textContent = state.sustain ? '踩下' : '放開';
     $('#sustain-box').classList.toggle('on', state.sustain);
     const total = game.notes.length || 1;
@@ -926,8 +1369,10 @@
       html =
         '<p class="cm-eyebrow">M1 · 一般模式</p>' +
         '<p class="cm-title">用鍵盤彈奏</p>' +
-        '<p class="cm-hint">下排 <kbd>Z</kbd>–<kbd>M</kbd> 與上排 <kbd>Q</kbd>–<kbd>P</kbd> 是白鍵，' +
-        '<br>各自上面一排的字母與數字是黑鍵</p>';
+        '<p class="cm-hint wide-only">上兩排是一整條鋼琴：<kbd>Q</kbd>–<kbd>\\</kbd> 是白鍵、數字和 <kbd>-</kbd><kbd>=</kbd> 是黑鍵，' +
+        '<br>中央 C 在 <kbd>Y</kbd>，左手放 <kbd>Q</kbd>–<kbd>T</kbd>、右手放 <kbd>Y</kbd> 以右。' +
+        '<br>下兩排 <kbd>Z</kbd>–<kbd>/</kbd> 是低一個八度的低音區（琴鍵上的金字）</p>' +
+        '<p class="cm-hint narrow-only">點琴鍵彈奏，按住滑過去可以刮奏。<br>接上實體鍵盤就能用字母、數字與符號鍵彈</p>';
     } else if (state.mode === 2 && game.status === 'idle') {
       html =
         `<p class="cm-eyebrow">M2 · 曲譜模式 · 第 ${game.index + 1} 首</p>` +
@@ -944,12 +1389,43 @@
       el.innerHTML = html;
       el.hidden = !html;
     }
+    placeCenter();
+  }
+
+  // 提示文字放在舞台中段，但不能頂到標頭
+  function placeCenter() {
+    const el = $('#center-msg');
+    if (el.hidden) return;
+    el.style.top = `${Math.round(Math.max(G.mid, G.hudBottom + el.offsetHeight / 2 + 12))}px`;
+  }
+
+  function renderRhythm(flash) {
+    const style = STYLES[rhythm.style];
+    const song = window.SONGS[game.index];
+    $('#style-no').textContent = pad2(rhythm.style + 1);
+    $('#style-name').textContent = style.name;
+    $('#style-en').textContent = style.en;
+    $('#rhythm-btn').setAttribute('aria-pressed', String(rhythm.on));
+    $('#rhythm-text').textContent = rhythm.on ? '停止' : '開始';
+    const followSong = state.mode === 2;
+    $('#tempo-val').textContent = String(followSong ? Math.round(song.bpm * game.speed) : rhythm.bpm);
+    document.querySelector('.tempo').classList.toggle('locked', followSong);
+    const meter = followSong ? song.meter || 4 : style.meter;
+    const leds = $('#leds');
+    if (leds.childElementCount !== meter) leds.innerHTML = '<i></i>'.repeat(meter);
+    if (flash) {
+      const lcd = $('#style-lcd');
+      lcd.classList.remove('flash');
+      void lcd.offsetWidth;
+      lcd.classList.add('flash');
+    }
   }
 
   function renderAll() {
     renderReadouts();
     renderSongbar();
     renderCenter();
+    renderRhythm(false);
   }
 
   let toastTimer = 0;
@@ -1168,7 +1644,7 @@
       g2.font = `600 ${Math.round(clamp(w * 0.42, 9, 13))}px "IBM Plex Mono", ui-monospace, monospace`;
       g2.textAlign = 'center';
       g2.textBaseline = 'alphabetic';
-      g2.fillText(LABELS[i], x + w / 2, bottom - 5);
+      g2.fillText(keyLabel(i, n.hand), x + w / 2, bottom - 5);
     }
     g2.restore();
 
@@ -1294,6 +1770,7 @@
     drawSparks(dt);
     drawTexts(now);
     drawCentre(now);
+    updateLeds(now);
     requestAnimationFrame(frame);
   }
 
@@ -1306,6 +1783,7 @@
     typeof e.timeStamp === 'number' && Math.abs(e.timeStamp - performance.now()) < 1000 ? e.timeStamp : performance.now();
 
   window.addEventListener('keydown', e => {
+    if (e.code === 'Escape') closeMenus();
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const code = normaliseCode(e.code);
     if (ARROWS.has(code)) {
@@ -1334,6 +1812,7 @@
       releaseAll();
       pauseSong();
     }
+    refreshRhythm(true);
   });
 
   // 滑鼠／觸控：可以按住後滑過琴鍵（刮奏）
@@ -1390,7 +1869,18 @@
   });
   $('#prev-tone').addEventListener('click', () => setTone(state.tone - 1, true));
   $('#next-tone').addEventListener('click', () => setTone(state.tone + 1, true));
-  $('#tone-lcd').addEventListener('click', () => setTone(state.tone + 1, true));
+  $('#tone-lcd').addEventListener('click', () => toggleMenu($('#tone-menu'), $('#tone-lcd'), state.tone));
+  buildMenu($('#tone-menu'), TONES, TONE_GROUPS, i => setTone(i, true));
+  $('#prev-style').addEventListener('click', () => setStyle(rhythm.style - 1));
+  $('#next-style').addEventListener('click', () => setStyle(rhythm.style + 1));
+  $('#style-lcd').addEventListener('click', () => toggleMenu($('#style-menu'), $('#style-lcd'), rhythm.style));
+  buildMenu($('#style-menu'), STYLES, STYLE_GROUPS, setStyle);
+  $('#rhythm-btn').addEventListener('click', toggleRhythm);
+  $('#tempo-down').addEventListener('click', () => nudgeTempo(-2));
+  $('#tempo-up').addEventListener('click', () => nudgeTempo(2));
+  document.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.panel')) closeMenus();
+  });
 
   window.addEventListener('resize', measure);
   if (window.ResizeObserver) new ResizeObserver(measure).observe(caseEl);

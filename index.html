@@ -25,21 +25,9 @@
         <button type="button" class="mode" data-mode="2" aria-pressed="false"><b>M2</b>曲譜模式</button>
       </div>
 
-      <div class="tone" role="group" aria-label="音色">
-        <button type="button" class="icon-btn" id="prev-tone" aria-label="上一個音色">‹</button>
-        <button type="button" class="tone-lcd" id="tone-lcd" aria-label="下一個音色" aria-describedby="tone-name">
-          <span class="tone-no" id="tone-no">01</span>
-          <span class="tone-text">
-            <span class="tone-name" id="tone-name" aria-live="polite">鋼琴</span>
-            <span class="tone-en" id="tone-en">Grand Piano</span>
-          </span>
-        </button>
-        <button type="button" class="icon-btn" id="next-tone" aria-label="下一個音色">›</button>
-      </div>
-
       <div class="readouts">
         <div class="readout m1-only"><span class="label">八度</span><span class="value" id="octave-val">0</span></div>
-        <div class="readout m1-only"><span class="label">音域</span><span class="value" id="range-val">C3–E5</span></div>
+        <div class="readout m1-only"><span class="label">音域</span><span class="value" id="range-val">D♯2–C5</span></div>
         <div class="readout m1-only pedal" id="sustain-box"><span class="label">延音踏板</span><span class="value" id="sustain-val">放開</span></div>
         <div class="readout m2-only"><span class="label">分數</span><span class="value" id="score-val">0</span></div>
         <div class="readout m2-only"><span class="label">連擊</span><span class="value" id="combo-val">0</span></div>
@@ -83,6 +71,45 @@
       <div class="felt" aria-hidden="true"></div>
       <div class="piano" id="piano" role="group" aria-label="琴鍵"></div>
     </div>
+
+    <div class="console">
+      <div class="panel" role="group" aria-label="音色">
+        <span class="panel-label">音色</span>
+        <button type="button" class="icon-btn" id="prev-tone" aria-label="上一個音色">‹</button>
+        <button type="button" class="lcd" id="tone-lcd" aria-haspopup="listbox" aria-expanded="false" aria-controls="tone-menu">
+          <span class="lcd-no" id="tone-no">01</span>
+          <span class="lcd-text">
+            <span class="lcd-name" id="tone-name" aria-live="polite">鋼琴</span>
+            <span class="lcd-en" id="tone-en">Grand Piano</span>
+          </span>
+        </button>
+        <button type="button" class="icon-btn" id="next-tone" aria-label="下一個音色">›</button>
+        <div class="menu" id="tone-menu" role="listbox" aria-label="選擇音色" hidden></div>
+      </div>
+
+      <div class="panel" role="group" aria-label="節奏伴奏">
+        <span class="panel-label">節奏</span>
+        <button type="button" class="icon-btn" id="prev-style" aria-label="上一個節奏">‹</button>
+        <button type="button" class="lcd" id="style-lcd" aria-haspopup="listbox" aria-expanded="false" aria-controls="style-menu">
+          <span class="lcd-no" id="style-no">01</span>
+          <span class="lcd-text">
+            <span class="lcd-name" id="style-name" aria-live="polite">流行</span>
+            <span class="lcd-en" id="style-en">8 Beat Pop</span>
+          </span>
+        </button>
+        <button type="button" class="icon-btn" id="next-style" aria-label="下一個節奏">›</button>
+        <div class="menu" id="style-menu" role="listbox" aria-label="選擇節奏" hidden></div>
+        <button type="button" class="rhythm-btn" id="rhythm-btn" aria-pressed="false">
+          <span class="rhythm-icon" aria-hidden="true"></span><span id="rhythm-text">開始</span>
+        </button>
+        <div class="tempo" role="group" aria-label="速度">
+          <button type="button" class="icon-btn" id="tempo-down" aria-label="放慢">−</button>
+          <span class="tempo-val">♩=<b id="tempo-val">96</b></span>
+          <button type="button" class="icon-btn" id="tempo-up" aria-label="加快">+</button>
+        </div>
+        <div class="leds" id="leds" aria-hidden="true"></div>
+      </div>
+    </div>
   </div>
 
   <footer class="keys-help">
@@ -91,7 +118,7 @@
     <span class="m1-only"><kbd>↓</kbd>延音踏板</span>
     <span class="m2-only"><kbd>←</kbd><kbd>→</kbd>選曲</span>
     <span class="m2-only"><kbd>↓</kbd>開始／暫停</span>
-    <span class="help-note">光色取自史克里亞賓的色光鍵盤</span>
+    <span class="help-note">黑字：上兩排　金字：下兩排低音　光色取自史克里亞賓的色光鍵盤</span>
   </footer>
 
   <div class="result" id="result" hidden>
