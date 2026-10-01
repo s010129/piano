@@ -25,6 +25,18 @@
         <button type="button" class="mode" data-mode="2" aria-pressed="false"><b>M2</b>曲譜模式</button>
       </div>
 
+      <div class="tone" role="group" aria-label="音色">
+        <button type="button" class="icon-btn" id="prev-tone" aria-label="上一個音色">‹</button>
+        <button type="button" class="tone-lcd" id="tone-lcd" aria-label="下一個音色" aria-describedby="tone-name">
+          <span class="tone-no" id="tone-no">01</span>
+          <span class="tone-text">
+            <span class="tone-name" id="tone-name" aria-live="polite">鋼琴</span>
+            <span class="tone-en" id="tone-en">Grand Piano</span>
+          </span>
+        </button>
+        <button type="button" class="icon-btn" id="next-tone" aria-label="下一個音色">›</button>
+      </div>
+
       <div class="readouts">
         <div class="readout m1-only"><span class="label">八度</span><span class="value" id="octave-val">0</span></div>
         <div class="readout m1-only"><span class="label">音域</span><span class="value" id="range-val">C3–E5</span></div>
@@ -48,6 +60,9 @@
       <span class="song-meta" id="song-meta">♩=104</span>
       <div class="song-controls">
         <button type="button" class="play-btn" id="play-btn">開始</button>
+        <button type="button" class="demo-btn" id="demo-btn" aria-pressed="false">
+          <span class="demo-dot" aria-hidden="true"></span><span id="demo-text">自動示範</span>
+        </button>
         <div class="speed" role="group" aria-label="速度">
           <span class="speed-label">速度</span>
           <button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>
@@ -55,12 +70,12 @@
           <button type="button" data-speed="1" aria-pressed="true">1×</button>
           <button type="button" data-speed="1.25" aria-pressed="false">1.25×</button>
         </div>
-        <label class="auto" for="auto-play"><input type="checkbox" id="auto-play">自動示範</label>
       </div>
     </div>
   </header>
 
   <div class="center-msg" id="center-msg"></div>
+  <div class="demo-badge" id="demo-badge" hidden><span class="demo-dot" aria-hidden="true"></span>自動示範中<span class="demo-hint">　再按一次「示範中」就換你自己彈</span></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <div class="dock">

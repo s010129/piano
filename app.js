@@ -35,12 +35,22 @@
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* ───────────── 音色：Web Audio 合成鋼琴 ───────────── */
+  /* ───────────── 音色：Web Audio 合成，像電子琴一樣可以切換 ───────────── */
+  const TONES = [
+    { id: 'piano', name: '鋼琴', en: 'Grand Piano' },
+    { id: 'epiano', name: '電鋼琴', en: 'Electric Piano' },
+    { id: 'organ', name: '風琴', en: 'Drawbar Organ' },
+    { id: 'strings', name: '弦樂', en: 'Strings' },
+    { id: 'synth', name: '合成器', en: 'Synth Lead' },
+    { id: 'musicbox', name: '音樂盒', en: 'Music Box' },
+  ];
+
   const audio = (() => {
     let ctx = null;
     let bus = null;
     let waves = null;
     let noise = null;
+    let tone = 'piano';
     const sounding = new Map(); // midi → 目前發聲中的 voice
     const live = new Set();
     const MAX_VOICES = 48;
@@ -88,11 +98,13 @@
         comp.connect(master);
         master.connect(ctx.destination);
 
-        // 低音區泛音豐富、高音區接近純音
         waves = {
+          // 鋼琴：低音區泛音豐富、高音區接近純音
           low: harmonicWave([0.55, 1, 0.8, 0.62, 0.48, 0.36, 0.28, 0.2, 0.15, 0.11, 0.08, 0.06, 0.045, 0.03]),
           mid: harmonicWave([1, 0.62, 0.38, 0.24, 0.16, 0.1, 0.07, 0.045, 0.03, 0.02]),
           high: harmonicWave([1, 0.28, 0.1, 0.04, 0.02]),
+          // 風琴拉桿：以低八度為基頻，依序是 16'、8'、5⅓'、4'、2⅔'、2'、1⅗'、1⅓'、1'
+          organ: harmonicWave([0.5, 1, 0.55, 0.6, 0, 0.35, 0, 0.35, 0, 0.1, 0, 0.12, 0, 0, 0, 0.15]),
         };
         noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.1), ctx.sampleRate);
         const nd = noise.getChannelData(0);
@@ -102,67 +114,202 @@
       return true;
     }
 
+    function osc(type, freq, detune, dest, t) {
+      const o = ctx.createOscillator();
+      if (typeof type === 'string') o.type = type;
+      else o.setPeriodicWave(type);
+      o.frequency.value = freq;
+      o.detune.value = detune;
+      o.connect(dest);
+      o.start(t);
+      return o;
+    }
+
+    function gainNode(value, dest) {
+      const g = ctx.createGain();
+      g.gain.value = value;
+      g.connect(dest);
+      return g;
+    }
+
+    function lowpass(dest, q) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.Q.value = q;
+      f.connect(dest);
+      return f;
+    }
+
+    // 短促的敲擊／按鍵噪音
+    function click(level, freq, t, length) {
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = freq;
+      band.Q.value = 0.9;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(level, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + length);
+      src.connect(band);
+      band.connect(g);
+      g.connect(bus);
+      src.start(t);
+      src.stop(t + length + 0.02);
+    }
+
+    function vibrato(rate, cents, delay, t) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = rate;
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(delay ? 0 : cents, t);
+      if (delay) depth.gain.linearRampToValueAtTime(cents, t + delay);
+      lfo.connect(depth);
+      lfo.start(t);
+      return { lfo, depth };
+    }
+
+    /* 每種音色：建立聲源接到 v.out、排好音量包絡，設定放開琴鍵後的收尾時間，回傳最晚結束時間 */
+    const VOICES = {
+      piano(v, t, f, pos, vel) {
+        const level = 0.11 * vel * (1.1 - pos * 0.45);
+        const ring = 3.2 - pos * 2.5; // 餘音的時間常數（秒）
+        const tone = lowpass(v.out, 0.6);
+        tone.frequency.setValueAtTime(Math.min(16000, f * (5 + 9 * vel) + 900), t);
+        tone.frequency.setTargetAtTime(Math.min(9000, f * 2.4 + 350), t + 0.01, 0.18 + (1 - pos) * 0.5);
+        const wave = v.midi < 52 ? waves.low : v.midi < 77 ? waves.mid : waves.high;
+        for (const side of [-1, 1]) v.srcs.push(osc(wave, f, side * (0.9 + pos * 1.6), tone, t)); // 多條弦微微走音
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.004);
+        g.setTargetAtTime(level * 0.38, t + 0.006, 0.07 + (1 - pos) * 0.16);
+        g.setTargetAtTime(0, t + 0.28, ring);
+        click(level * 0.9, Math.min(7000, f * 3 + 500), t, 0.035); // 琴槌敲弦
+        v.release = 0.14 - pos * 0.08; // 制音器落下
+        return t + 0.3 + ring * 7;
+      },
+
+      // 調頻（FM）合成的音叉式電鋼琴
+      epiano(v, t, f, pos, vel) {
+        const level = 0.13 * vel * (1.05 - pos * 0.4);
+        const ring = 2.4 - pos * 1.6;
+        const carrier = osc('sine', f, 0, v.out, t);
+        const index = ctx.createGain();
+        index.gain.setValueAtTime(f * (1.2 + 1.6 * vel), t);
+        index.gain.setTargetAtTime(f * 0.25, t + 0.005, 0.35);
+        index.connect(carrier.frequency);
+        const modulator = osc('sine', f, 0, index, t);
+        const tineGain = ctx.createGain();
+        tineGain.gain.setValueAtTime(0.3, t);
+        tineGain.gain.setTargetAtTime(0, t, 0.05);
+        tineGain.connect(v.out);
+        const tine = osc('sine', Math.min(f * 7, 16000), 0, tineGain, t);
+        v.srcs.push(carrier, modulator, tine);
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.003);
+        g.setTargetAtTime(level * 0.55, t + 0.004, 0.3);
+        g.setTargetAtTime(0, t + 0.4, ring);
+        v.release = 0.1;
+        return t + 0.4 + ring * 7;
+      },
+
+      // 拉桿風琴：按住就一直響，沒有力度
+      organ(v, t, f) {
+        const level = 0.06;
+        const vib = vibrato(6.2, 7, 0, t);
+        for (const cents of [0, 5]) {
+          const o = osc(waves.organ, f / 2, cents, v.out, t);
+          vib.depth.connect(o.detune);
+          v.srcs.push(o);
+        }
+        v.srcs.push(vib.lfo);
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.012);
+        click(level * 0.6, 2500, t, 0.012); // 接點的「喀」聲
+        v.release = 0.035;
+        return t + 600;
+      },
+
+      // 弦樂合奏：慢慢起音、延遲的抖音
+      strings(v, t, f, pos) {
+        const level = 0.036 * (1.1 - pos * 0.3);
+        const tone = lowpass(v.out, 0.4);
+        tone.frequency.value = Math.min(12000, f * 4 + 900);
+        const vib = vibrato(5.2, 9, 0.6, t);
+        for (const cents of [-11, 0, 11]) {
+          const o = osc('sawtooth', f, cents, tone, t);
+          vib.depth.connect(o.detune);
+          v.srcs.push(o);
+        }
+        v.srcs.push(vib.lfo);
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.28);
+        g.setTargetAtTime(level * 0.85, t + 0.28, 0.5);
+        v.release = 0.32;
+        return t + 600;
+      },
+
+      // 合成器主奏：兩把鋸齒波加低八度方波，濾波器快速關閉
+      synth(v, t, f) {
+        const level = 0.045;
+        const tone = lowpass(v.out, 5);
+        tone.frequency.setValueAtTime(Math.min(14000, f * 10 + 1200), t);
+        tone.frequency.setTargetAtTime(Math.min(9000, f * 3 + 500), t + 0.005, 0.12);
+        v.srcs.push(osc('sawtooth', f, -7, tone, t), osc('sawtooth', f, 7, tone, t));
+        v.srcs.push(osc('square', f / 2, 0, gainNode(0.4, tone), t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.006);
+        g.setTargetAtTime(level * 0.75, t + 0.006, 0.15);
+        v.release = 0.07;
+        return t + 600;
+      },
+
+      // 音樂盒：金屬簧片被撥動，放開也會自然響完
+      musicbox(v, t, f, pos, vel) {
+        const level = 0.11 * vel;
+        const ring = 1.6 - pos * 0.9;
+        const main = osc('sine', f, 0, v.out, t);
+        const octave = ctx.createGain();
+        octave.gain.setValueAtTime(0.18, t);
+        octave.gain.setTargetAtTime(0, t, 0.4);
+        octave.connect(v.out);
+        const ping = ctx.createGain();
+        ping.gain.setValueAtTime(0.35, t);
+        ping.gain.setTargetAtTime(0, t, 0.06);
+        ping.connect(v.out);
+        v.srcs.push(main, osc('sine', f * 2, 0, octave, t), osc('sine', Math.min(f * 6.27, 16000), 0, ping, t));
+        const g = v.out.gain;
+        g.setValueAtTime(0, t);
+        g.linearRampToValueAtTime(level, t + 0.002);
+        g.setTargetAtTime(0, t + 0.003, ring);
+        click(level * 0.5, Math.min(9000, f * 6), t, 0.01);
+        v.release = 0.45;
+        return t + 0.1 + ring * 8;
+      },
+    };
+
     function noteOn(midi, velocity = 0.82) {
       if (!ensure()) return null;
       const prev = sounding.get(midi);
-      if (prev) noteOff(prev, 0.03); // 同一條弦再敲一次
+      if (prev) noteOff(prev, 0.03); // 同一個音再按一次
       if (live.size >= MAX_VOICES) {
-        for (const v of live) { if (!v.released) { noteOff(v, 0.03); break; } }
+        for (const old of live) { if (!old.released) { noteOff(old, 0.03); break; } }
       }
 
       const t = ctx.currentTime + 0.002;
       const f = 440 * Math.pow(2, (midi - 69) / 12);
       const pos = clamp((midi - 24) / 72, 0, 1); // 0 = 低音，1 = 高音
       const vel = clamp(velocity + (Math.random() - 0.5) * 0.08, 0.1, 1);
-      const level = 0.11 * vel * (1.1 - pos * 0.45);
-      const ring = 3.2 - pos * 2.5; // 餘音的時間常數（秒）
-
       const out = ctx.createGain();
-      const tone = ctx.createBiquadFilter();
-      tone.type = 'lowpass';
-      tone.Q.value = 0.6;
-      tone.frequency.setValueAtTime(Math.min(16000, f * (5 + 9 * vel) + 900), t);
-      tone.frequency.setTargetAtTime(Math.min(9000, f * 2.4 + 350), t + 0.01, 0.18 + (1 - pos) * 0.5);
-      tone.connect(out);
       out.connect(bus);
-
-      const wave = midi < 52 ? waves.low : midi < 77 ? waves.mid : waves.high;
-      const oscs = [-1, 1].map(side => {
-        const o = ctx.createOscillator();
-        o.setPeriodicWave(wave);
-        o.frequency.value = f;
-        o.detune.value = side * (0.9 + pos * 1.6); // 多條弦微微走音的合唱感
-        o.connect(tone);
-        o.start(t);
-        return o;
-      });
-
-      const g = out.gain;
-      g.setValueAtTime(0, t);
-      g.linearRampToValueAtTime(level, t + 0.004);
-      g.setTargetAtTime(level * 0.38, t + 0.006, 0.07 + (1 - pos) * 0.16);
-      g.setTargetAtTime(0, t + 0.28, ring);
-
-      // 琴槌敲弦的短促噪音
-      const hammer = ctx.createBufferSource();
-      hammer.buffer = noise;
-      const band = ctx.createBiquadFilter();
-      band.type = 'bandpass';
-      band.frequency.value = Math.min(7000, f * 3 + 500);
-      band.Q.value = 0.9;
-      const hg = ctx.createGain();
-      hg.gain.setValueAtTime(level * 0.9, t);
-      hg.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
-      hammer.connect(band);
-      band.connect(hg);
-      hg.connect(bus);
-      hammer.start(t);
-      hammer.stop(t + 0.05);
-
-      const end = t + 0.3 + ring * 7;
-      oscs.forEach(o => o.stop(end));
-      const v = { midi, out, oscs, released: false };
-      oscs[0].onended = () => {
+      const v = { midi, out, srcs: [], release: 0.1, released: false };
+      const end = VOICES[tone](v, t, f, pos, vel);
+      v.srcs.forEach(s => s.stop(end));
+      v.srcs[0].onended = () => {
         out.disconnect();
         live.delete(v);
         if (sounding.get(midi) === v) sounding.delete(midi);
@@ -176,8 +323,7 @@
       if (!v || v.released || !ctx) return;
       v.released = true;
       const t = ctx.currentTime;
-      const pos = clamp((v.midi - 24) / 72, 0, 1);
-      const k = tau !== undefined ? tau : 0.14 - pos * 0.08; // 制音器落下
+      const k = tau !== undefined ? tau : v.release;
       const g = v.out.gain;
       if (g.cancelAndHoldAtTime) {
         g.cancelAndHoldAtTime(t);
@@ -187,10 +333,14 @@
         g.setValueAtTime(current, t);
       }
       g.setTargetAtTime(0, t, k);
-      v.oscs.forEach(o => { try { o.stop(t + k * 10); } catch (_) { /* 已停止 */ } });
+      v.srcs.forEach(s => { try { s.stop(t + k * 10); } catch (_) { /* 已停止 */ } });
     }
 
-    return { ensure, noteOn, noteOff };
+    function setTone(id) {
+      if (VOICES[id]) tone = id;
+    }
+
+    return { ensure, noteOn, noteOff, setTone };
   })();
 
   /* ───────────── DOM ───────────── */
@@ -201,7 +351,15 @@
   const pianoEl = $('#piano');
   const caseEl = $('#piano-case');
 
-  const state = { mode: 1, octave: 0, sustain: false, played: false };
+  const TONE_KEY = 'nocturne-tone';
+  const savedTone = (() => { try { return localStorage.getItem(TONE_KEY); } catch (_) { return null; } })();
+  const state = {
+    mode: 1,
+    octave: 0,
+    sustain: false,
+    played: false,
+    tone: Math.max(0, TONES.findIndex(t => t.id === savedTone)),
+  };
   const shift = () => (state.mode === 1 ? state.octave * 12 : 0);
 
   const keyEls = [];
@@ -273,8 +431,9 @@
     G.pianoTop = caseEl.getBoundingClientRect().top;
     // 標頭與琴鍵之間的舞台中段：放連擊數、和弦名稱與提示文字
     const hudBottom = document.querySelector('.hud').getBoundingClientRect().bottom;
-    G.mid = Math.max(hudBottom + 60, hudBottom + (G.pianoTop - hudBottom) * 0.42);
+    G.mid = Math.max(hudBottom + 80, hudBottom + (G.pianoTop - hudBottom) * 0.42);
     app.style.setProperty('--stage-mid', `${Math.round(G.mid)}px`);
+    app.style.setProperty('--hud-bottom', `${Math.round(hudBottom)}px`);
     // 判定區高度＝Perfect 時間窗內音符移動的距離：音符底部落在區內按下就是 Perfect
     G.bandH = clamp(2 * WINDOWS.perfect * (G.pianoTop / LOOKAHEAD), 22, 44);
     G.bandTop = G.pianoTop - G.bandH;
@@ -439,6 +598,7 @@
     clock0: 0,
     firstT: 0,
     endT: 0,
+    assisted: false, // 這一輪有沒有任何音是電腦代彈的
     combo: 0,
     maxCombo: 0,
     comboAt: 0,
@@ -457,6 +617,7 @@
     game.notes = parsed[game.index].map(n => ({ ...n, state: PENDING }));
     game.firstT = game.notes.length ? game.notes[0].t : 0;
     game.endT = game.notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
+    game.assisted = false;
     game.combo = 0;
     game.maxCombo = 0;
     game.weight = 0;
@@ -561,6 +722,7 @@
   function autoPlay(n) {
     const i = n.midi - LOW;
     const voice = audio.noteOn(n.midi, 0.78);
+    game.assisted = true;
     keyDown(i, 1);
     flashes.set(i, performance.now());
     game.holds.push({ i, voice, until: n.t + n.d * 0.9 });
@@ -604,15 +766,15 @@
     const acc = game.weight / total;
     const score = Math.round(acc * 1e6);
     let isBest = false;
-    if (!game.auto && score > loadBest(song.id)) {
+    if (!game.assisted && score > loadBest(song.id)) {
       saveBest(song.id, score);
       isBest = true;
     }
     const rank = acc >= 0.95 ? 'S' : acc >= 0.88 ? 'A' : acc >= 0.75 ? 'B' : acc >= 0.6 ? 'C' : 'D';
     $('#result-song').textContent = song.title;
     const rankEl = $('#result-rank');
-    rankEl.textContent = game.auto ? '示範' : rank;
-    rankEl.classList.toggle('demo', game.auto);
+    rankEl.textContent = game.assisted ? '示範' : rank;
+    rankEl.classList.toggle('demo', game.assisted);
     $('#result-flag').textContent = isBest ? '新紀錄' : '';
     $('#r-score').textContent = score.toLocaleString('en-US');
     $('#r-acc').textContent = (acc * 100).toFixed(1) + '%';
@@ -678,6 +840,25 @@
     renderReadouts();
   }
 
+  // 自動示範：打開時若還沒開始就直接播放；演奏中可隨時切換成自己彈
+  function setAuto(on) {
+    game.auto = on;
+    if (on && (game.status === 'idle' || game.status === 'done')) startSong();
+    else if (on && game.status === 'paused') resumeSong();
+    else renderAll();
+  }
+
+  function setTone(index, preview) {
+    state.tone = (index + TONES.length) % TONES.length;
+    audio.setTone(TONES[state.tone].id);
+    try { localStorage.setItem(TONE_KEY, TONES[state.tone].id); } catch (_) { /* 無法儲存時略過 */ }
+    renderTone(true);
+    if (preview && !(state.mode === 2 && game.status === 'playing')) {
+      const v = audio.noteOn(60 + shift(), 0.75); // 試聽中央 C
+      setTimeout(() => audio.noteOff(v), 380);
+    }
+  }
+
   function onArrow(code) {
     if (code === 'ArrowUp') {
       setMode(state.mode === 1 ? 2 : 1);
@@ -718,7 +899,23 @@
     document.querySelectorAll('.speed button').forEach(b => {
       b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === game.speed));
     });
-    $('#auto-play').checked = game.auto;
+    $('#demo-btn').setAttribute('aria-pressed', String(game.auto));
+    $('#demo-text').textContent = game.auto ? '示範中' : '自動示範';
+    $('#demo-badge').hidden =
+      !(state.mode === 2 && game.auto && (game.status === 'playing' || game.status === 'paused'));
+  }
+
+  function renderTone(flash) {
+    const t = TONES[state.tone];
+    $('#tone-no').textContent = String(state.tone + 1).padStart(2, '0');
+    $('#tone-name').textContent = t.name;
+    $('#tone-en').textContent = t.en;
+    const lcd = $('#tone-lcd');
+    lcd.classList.remove('flash');
+    if (flash) {
+      void lcd.offsetWidth; // 重新觸發閃爍動畫
+      lcd.classList.add('flash');
+    }
   }
 
   function renderCenter() {
@@ -735,7 +932,8 @@
       html =
         `<p class="cm-eyebrow">M2 · 曲譜模式 · 第 ${game.index + 1} 首</p>` +
         `<p class="cm-title">${song.title}</p>` +
-        '<p class="cm-hint">按 <kbd>↓</kbd> 開始。音符落進琴鍵上方的金色判定區時，按下它標示的按鍵</p>';
+        '<p class="cm-hint">按 <kbd>↓</kbd> 自己彈，或點「自動示範」讓電腦先彈一遍。' +
+        '<br>音符落進琴鍵上方的金色判定區時，按下它標示的按鍵</p>';
     } else if (state.mode === 2 && game.status === 'paused') {
       html =
         '<p class="cm-title">已暫停</p>' +
@@ -1186,16 +1384,21 @@
   document.querySelectorAll('.speed button').forEach(b => {
     b.addEventListener('click', () => setSpeed(Number(b.dataset.speed)));
   });
-  $('#auto-play').addEventListener('change', e => {
-    game.auto = e.target.checked;
+  $('#demo-btn').addEventListener('click', () => {
     audio.ensure();
+    setAuto(!game.auto);
   });
+  $('#prev-tone').addEventListener('click', () => setTone(state.tone - 1, true));
+  $('#next-tone').addEventListener('click', () => setTone(state.tone + 1, true));
+  $('#tone-lcd').addEventListener('click', () => setTone(state.tone + 1, true));
 
   window.addEventListener('resize', measure);
   if (window.ResizeObserver) new ResizeObserver(measure).observe(caseEl);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
 
   /* ───────────── 啟動 ───────────── */
+  audio.setTone(TONES[state.tone].id);
+  renderTone(false);
   refreshLabels();
   resetRun();
   renderAll();
