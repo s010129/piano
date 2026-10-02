@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>夜曲鋼琴</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app" data-mode="1">
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <header class="hud">
+    <div class="hud-row">
+      <div class="brand">
+        <span class="brand-mark">Nocturne</span>
+        <span class="brand-sub">夜曲鋼琴</span>
+      </div>
+
+      <div class="modes" role="group" aria-label="模式">
+        <button type="button" class="mode" data-mode="1" aria-pressed="true"><b>M1</b>一般模式</button>
+        <button type="button" class="mode" data-mode="2" aria-pressed="false"><b>M2</b>曲譜模式</button>
+      </div>
+
+      <div class="readouts">
+        <div class="readout m1-only"><span class="label">八度</span><span class="value" id="octave-val">0</span></div>
+        <div class="readout m1-only"><span class="label">音域</span><span class="value" id="range-val">D♯2–C5</span></div>
+        <div class="readout m1-only pedal" id="sustain-box"><span class="label">延音踏板</span><span class="value" id="sustain-val">放開</span></div>
+        <div class="readout m2-only"><span class="label">分數</span><span class="value" id="score-val">0</span></div>
+        <div class="readout m2-only"><span class="label">連擊</span><span class="value" id="combo-val">0</span></div>
+        <div class="readout m2-only"><span class="label">準確率</span><span class="value" id="acc-val">—</span></div>
+      </div>
+    </div>
+
+    <div class="songbar m2-only">
+      <div class="song-picker">
+        <button type="button" class="icon-btn" id="prev-song" aria-label="上一首">‹</button>
+        <div class="song-info">
+          <span class="song-index" id="song-index">2 / 7</span>
+          <span class="song-title" id="song-title">小星星</span>
+          <span class="song-sub" id="song-sub">Twinkle, Twinkle, Little Star</span>
+        </div>
+        <button type="button" class="icon-btn" id="next-song" aria-label="下一首">›</button>
+      </div>
+      <span class="song-meta" id="song-meta">♩=104</span>
+      <div class="song-controls">
+        <button type="button" class="play-btn" id="play-btn">開始</button>
+        <button type="button" class="demo-btn" id="demo-btn" aria-pressed="false">
+          <span class="demo-dot" aria-hidden="true"></span><span id="demo-text">自動示範</span>
+        </button>
+        <div class="speed" role="group" aria-label="速度">
+          <span class="speed-label">速度</span>
+          <button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>
+          <button type="button" data-speed="0.75" aria-pressed="false">0.75×</button>
+          <button type="button" data-speed="1" aria-pressed="true">1×</button>
+          <button type="button" data-speed="1.25" aria-pressed="false">1.25×</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="center-msg" id="center-msg"></div>
+  <div class="demo-badge" id="demo-badge" hidden><span class="demo-dot" aria-hidden="true"></span>自動示範中<span class="demo-hint">　再按一次「示範中」就換你自己彈</span></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="dock">
+    <div class="piano-case" id="piano-case">
+      <div class="felt" aria-hidden="true"></div>
+      <div class="piano" id="piano" role="group" aria-label="琴鍵"></div>
+    </div>
+
+    <div class="console">
+      <div class="panel" role="group" aria-label="音色">
+        <span class="panel-label">音色</span>
+        <button type="button" class="icon-btn" id="prev-tone" aria-label="上一個音色">‹</button>
+        <button type="button" class="lcd" id="tone-lcd" aria-haspopup="listbox" aria-expanded="false" aria-controls="tone-menu">
+          <span class="lcd-no" id="tone-no">01</span>
+          <span class="lcd-text">
+            <span class="lcd-name" id="tone-name" aria-live="polite">鋼琴</span>
+            <span class="lcd-en" id="tone-en">Grand Piano</span>
+          </span>
+        </button>
+        <button type="button" class="icon-btn" id="next-tone" aria-label="下一個音色">›</button>
+        <div class="menu" id="tone-menu" role="listbox" aria-label="選擇音色" hidden></div>
+      </div>
+
+      <div class="panel" role="group" aria-label="節奏伴奏">
+        <span class="panel-label">節奏</span>
+        <button type="button" class="icon-btn" id="prev-style" aria-label="上一個節奏">‹</button>
+        <button type="button" class="lcd" id="style-lcd" aria-haspopup="listbox" aria-expanded="false" aria-controls="style-menu">
+          <span class="lcd-no" id="style-no">01</span>
+          <span class="lcd-text">
+            <span class="lcd-name" id="style-name" aria-live="polite">流行</span>
+            <span class="lcd-en" id="style-en">8 Beat Pop</span>
+          </span>
+        </button>
+        <button type="button" class="icon-btn" id="next-style" aria-label="下一個節奏">›</button>
+        <div class="menu" id="style-menu" role="listbox" aria-label="選擇節奏" hidden></div>
+        <button type="button" class="rhythm-btn" id="rhythm-btn" aria-pressed="false">
+          <span class="rhythm-icon" aria-hidden="true"></span><span id="rhythm-text">開始</span>
+        </button>
+        <div class="tempo" role="group" aria-label="速度">
+          <button type="button" class="icon-btn" id="tempo-down" aria-label="放慢">−</button>
+          <span class="tempo-val">♩=<b id="tempo-val">96</b></span>
+          <button type="button" class="icon-btn" id="tempo-up" aria-label="加快">+</button>
+        </div>
+        <div class="leds" id="leds" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="keys-help">
+    <span><kbd>↑</kbd>切換模式</span>
+    <span class="m1-only"><kbd>←</kbd><kbd>→</kbd>降／升八度</span>
+    <span class="m1-only"><kbd>↓</kbd>延音踏板</span>
+    <span class="m2-only"><kbd>←</kbd><kbd>→</kbd>選曲</span>
+    <span class="m2-only"><kbd>↓</kbd>開始／暫停</span>
+    <span class="help-note">黑字：上兩排　金字：下兩排低音　光色取自史克里亞賓的色光鍵盤</span>
+  </footer>
+
+  <div class="result" id="result" hidden>
+    <div class="result-card">
+      <p class="result-eyebrow" id="result-song">小星星</p>
+      <div class="result-rank" id="result-rank">S</div>
+      <p class="result-flag" id="result-flag"></p>
+      <dl class="result-stats">
+        <div><dt>分數</dt><dd id="r-score">0</dd></div>
+        <div><dt>準確率</dt><dd id="r-acc">0%</dd></div>
+        <div><dt>最大連擊</dt><dd id="r-combo">0</dd></div>
+      </dl>
+      <ul class="result-grades">
+        <li class="g-perfect"><span>Perfect</span><b id="r-perfect">0</b></li>
+        <li class="g-great"><span>Great</span><b id="r-great">0</b></li>
+        <li class="g-good"><span>Good</span><b id="r-good">0</b></li>
+        <li class="g-miss"><span>Miss</span><b id="r-miss">0</b></li>
+      </ul>
+      <p class="result-help"><kbd>↓</kbd>再玩一次　<kbd>←</kbd><kbd>→</kbd>換曲　<kbd>↑</kbd>回一般模式</p>
+    </div>
+  </div>
+</div>
+
+<script src="songs.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
