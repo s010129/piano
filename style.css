@@ -714,8 +714,44 @@ kbd {
 .g-great span { color: var(--great); }
 .g-good span { color: var(--good); }
 .g-miss span { color: var(--miss); }
-.result-help { margin: 20px 0 0; font-size: 12px; line-height: 2.2; color: var(--ink-dim); }
-.result-help kbd { margin-right: 4px; }
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0 0;
+}
+.result-btn {
+  flex: 1 1 0;
+  min-width: 96px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.result-btn:hover { border-color: var(--brass); }
+.result-btn.primary {
+  flex-basis: 100%;
+  border-color: var(--brass);
+  background: var(--brass);
+  color: var(--ink-on-brass);
+  font-size: 16px;
+}
+.result-btn.primary:hover { filter: brightness(1.08); }
+.result-btn kbd { min-width: 20px; height: 20px; font-size: 11px; }
+.result-btn.primary kbd { color: var(--ink-on-brass); background: rgba(255, 255, 255, 0.25); border-color: rgba(29, 22, 10, 0.3); }
+/* 觸控裝置沒有實體鍵盤，不顯示快捷鍵 */
+@media (hover: none) and (pointer: coarse) {
+  .result-btn kbd { display: none; }
+}
 
 @keyframes card-in {
   from { opacity: 0; transform: translateY(12px) scale(0.98); }

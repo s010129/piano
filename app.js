@@ -1055,6 +1055,7 @@
     $('#r-miss').textContent = String(game.counts.miss);
     $('#result').hidden = false;
     renderAll();
+    $('#again-btn').focus({ preventScroll: true });
   }
 
   function hideResult() {
@@ -1863,6 +1864,12 @@
   document.querySelectorAll('.speed button').forEach(b => {
     b.addEventListener('click', () => setSpeed(Number(b.dataset.speed)));
   });
+  $('#again-btn').addEventListener('click', () => {
+    audio.ensure();
+    startSong();
+  });
+  $('#next-btn').addEventListener('click', () => selectSong(1));
+  $('#free-btn').addEventListener('click', () => setMode(1));
   $('#demo-btn').addEventListener('click', () => {
     audio.ensure();
     setAuto(!game.auto);
